@@ -1057,7 +1057,7 @@ class MatProduct(ExprWithIntLimits, MatrixExpr):
             if stop is None:
                 stop = self.shape[0]
 
-    def _subs(self, old, new, **_):
+    def _subs(self, old, new, **hints):
         intersect = new.free_symbols & self.variables_set - old.free_symbols
         if intersect:
             this = self

@@ -46,7 +46,7 @@ def prove(Eq):
 
     Eq << Eq[-1].subs(Eq[0])
 
-    Eq << discrete.combinatorics.factorial.expand.apply(n + 1)
+    Eq << discrete.combinatorics.permutation.factorial.expand.apply(n + 1)
 
     Eq.equation = Eq[-2].this.rhs.subs(Eq[-1])
     

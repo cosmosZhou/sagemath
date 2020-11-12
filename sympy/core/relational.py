@@ -9,7 +9,7 @@ from .function import AppliedUndef
 from .sympify import _sympify, SympifyError
 from .parameters import global_parameters
 from sympy.core.logic import fuzzy_bool, fuzzy_xor, fuzzy_and, fuzzy_not
-from sympy.logic.boolalg import Boolean, BooleanAtom, And
+from sympy.logic.boolalg import Boolean, BooleanAtom, And, BinaryCondition
 from sympy.core.sympify import sympify, SympifyError
 from sympy.core.basic import preorder_traversal
 
@@ -43,7 +43,7 @@ def _canonical(cond):
 
 
 # from sympy.logic.boolalg import Boolean
-class Relational(Boolean, Expr, EvalfMixin):
+class Relational(BinaryCondition, Expr, EvalfMixin):
     """Base class for all relation types.
 
     Explanation
@@ -100,17 +100,12 @@ class Relational(Boolean, Expr, EvalfMixin):
 
         return this
 
-    @property
-    def atomic_dtype(self):
-        from sympy.core.symbol import dtype
-        return dtype.condition
-
     def __new__(cls, lhs, rhs, rop=None, **assumptions):
 
         # If called by a subclass, do nothing special and pass on to Expr.
 
         if cls is not Relational:
-            return Boolean.__new__(cls, lhs, rhs, **assumptions)
+            return BinaryCondition.__new__(cls, lhs, rhs, **assumptions)
         # If called directly with an operator, look up the subclass
         # corresponding to that operator and delegate to it
         try:
@@ -320,12 +315,6 @@ class Relational(Boolean, Expr, EvalfMixin):
     def expand(self, *args, **kwargs):
         return self.func(self.lhs.expand(*args, **kwargs), self.rhs.expand(*args, **kwargs), equivalent=self)
 
-    def __nonzero__(self):
-        return False
-        raise TypeError("cannot determine truth value of Relational")
-
-    __bool__ = __nonzero__
-
     def _eval_as_set(self):
         # self is univariate and periodicity(self, x) in (0, None)
         from sympy.solvers.inequalities import solve_univariate_inequality
@@ -346,7 +335,7 @@ class Relational(Boolean, Expr, EvalfMixin):
 
     def simplify(self, deep=False, wrt=None):
         if deep or wrt is not None:
-            return Boolean.simplify(self, deep=True, wrt=wrt)        
+            return BinaryCondition.simplify(self, deep=True, wrt=wrt)        
 
         lhs, rhs = self.args
         lhs_func = lhs.func
@@ -407,7 +396,7 @@ class Relational(Boolean, Expr, EvalfMixin):
 
     def __add__(self, exp):
         if isinstance(exp, Equality):
-            return self.func(self.lhs + exp.lhs, self.rhs + exp.rhs, equivalent=[self, exp])
+            return self.func(self.lhs + exp.lhs, self.rhs + exp.rhs, equivalent=[self, exp]).simplify()
         elif isinstance(exp, Relational):
             return exp.func(self.lhs + exp.lhs, self.rhs + exp.rhs, equivalent=[self, exp])
         elif exp.is_ConditionalBoolean:
@@ -455,9 +444,6 @@ class Relational(Boolean, Expr, EvalfMixin):
     def __iter__(self):
         raise TypeError
 
-    def domain_defined(self, x):
-        return self.lhs.domain_defined(x) & self.rhs.domain_defined(x)
-
     def solve(self, x):
         from sympy.sets.contains import Contains
         if not x.is_Symbol:
@@ -495,10 +481,67 @@ class Relational(Boolean, Expr, EvalfMixin):
 
         return "%s %s %s" % (p._print(self.lhs), charmap[self.rel_op], p._print(self.rhs))
 
-    def domain_definition(self):
-        return self.lhs.domain_definition() & self.rhs.domain_definition()
-
+    def domain_conditioned(self, var):
+        from sympy.sets.sets import FiniteSet
+        domain = var.domain & self.domain_defined(var)
+        from sympy import solve
+        equation = self.lhs - self.rhs
+        if var.is_integer and not var.is_random:
+            from sympy import Dummy
+            x = Dummy('x', real=True)
+            equation = equation._subs(var, x)
+        else:
+            x = var
             
+        try:
+            solution = solve(equation, x)
+        except:
+            return
+            
+        if len(solution) == 1:
+            solution = solution[0]
+            op = type(self)
+    
+            from sympy import limit
+            b = limit(equation, x, S.Infinity)
+            a = limit(equation, x, S.NegativeInfinity)
+    
+            if b < 0:
+                b = -b
+                a = -a
+                dic = {Equality: Equality, StrictGreaterThan: StrictLessThan, GreaterThan: LessThan, StrictLessThan: StrictGreaterThan, LessThan: GreaterThan, Unequality: Unequality}
+                op = dic[op]
+    
+            if b > 0:
+                if a > 0:
+                    # equation >= 0
+                    if op in (LessThan, Equality):  # <=
+                        domain &= FiniteSet(solution)
+                    elif op == StrictLessThan:
+                        domain = S.EmptySet
+                    elif op == (StrictGreaterThan, Unequality):  # >
+                        domain -= FiniteSet(solution)
+                else :
+                    from sympy import Interval
+                    if op == LessThan:
+                        domain &= Interval(S.NegativeInfinity, solution)
+                    elif op == GreaterThan:
+                        domain &= Interval(solution, S.Infinity)
+                    elif op == StrictLessThan:
+                        domain &= Interval(S.NegativeInfinity, solution, right_open=True)
+                    elif op == StrictGreaterThan:
+                        domain &= Interval(solution, S.Infinity, left_open=True)
+                    elif op == Unequality:
+                        domain -= FiniteSet(solution)
+                    elif op == Equality:
+                        domain &= FiniteSet(solution)
+    
+            return domain
+
+    def rewrite(self, *args, **hints):
+        return self.func(self.lhs.rewrite(*args, **hints), self.rhs.rewrite(*args, **hints), equivalent=self)
+
+                    
 Rel = Relational
 
 
@@ -884,8 +927,8 @@ class Equal(Relational):
             return res
 
         old, new = args
-        
-        if not isinstance(old, Symbol):
+        new = sympify(new)
+        if not old.is_Symbol:
             lhs = self.lhs.subs(old, new)
             rhs = self.rhs.subs(old, new)
 
@@ -905,10 +948,11 @@ class Equal(Relational):
 
         if self.plausible:
 
+            lhs, rhs = self.lhs._subs(old, new), self.rhs._subs(old, new)
             if hasattr(new, 'has') and new.has(old):
-                eq = self.func(self.lhs.subs(old, new), self.rhs.subs(old, new), substituent=self)
+                eq = self.func(lhs, rhs, substituent=self)
             else:
-                eq = self.func(self.lhs.subs(old, new), self.rhs.subs(old, new), given=self)
+                eq = self.func(lhs, rhs, given=self)
             derivative = self.derivative
             if derivative is None:
                 derivative = {}
@@ -973,21 +1017,24 @@ class Equal(Relational):
         from sympy.concrete.expr_with_limits import ForAll
         if isinstance(indices, slice):
             x, *args = indices.start, indices.stop, indices.step
-            if x.is_bounded:
-                x = x.unbounded
-            m = self.lhs.shape[0]
-            is_equivalent = False
-            if len(args) == 2:
-                if args[0] == 0 and args[1] == m:
-                    is_equivalent = True
+            if x is None:                
+                return self.func(self.lhs[indices], self.rhs[indices], given=self)
             else:
-                assert len(args) == 1
-                if args[0] == m:
-                    is_equivalent = True
-            if is_equivalent :
-                return self.func(self.lhs[x], self.rhs[x], equivalent=self)
-            else:
-                ForAll(self.func(self.lhs[x], self.rhs[x]), (x, *args), given=self)
+                if x.is_bounded:
+                    x = x.unbounded
+                m = self.lhs.shape[0]
+                is_equivalent = False
+                if len(args) == 2:
+                    if args[0] == 0 and args[1] == m:
+                        is_equivalent = True
+                else:
+                    assert len(args) == 1
+                    if args[0] == m:
+                        is_equivalent = True
+                if is_equivalent :
+                    return self.func(self.lhs[x], self.rhs[x], equivalent=self)
+                else:
+                    ForAll(self.func(self.lhs[x], self.rhs[x]), (x, *args), given=self)
         return self.func(self.lhs[indices], self.rhs[indices], given=self)
 
     @property
@@ -1037,7 +1084,7 @@ class Equal(Relational):
 
     def simplify(self, deep=False, wrt=None):
         if deep or wrt is not None:
-            return Boolean.simplify(self, deep=True, wrt=wrt)        
+            return BinaryCondition.simplify(self, deep=True, wrt=wrt)        
 
         lhs, rhs = self.args
         from sympy.concrete.expr_with_limits import ForAll        
@@ -1088,6 +1135,9 @@ class Equal(Relational):
                     rhs = self.rhs.arg.simplify_condition_on_random_variable()
                     if rhs is not self.rhs.arg:
                         return self.func(lhs, rhs, equivalent=self)
+            elif op.is_FiniteSet:
+                if len(lhs) == len(rhs) == 1:
+                    return self.func(lhs.arg, rhs.arg, equivalent=self)
                                      
         elif type(lhs) == Add and rhs in lhs.args:
             args = [*lhs.args]
@@ -1109,7 +1159,10 @@ class Equal(Relational):
                     else:
                         _rhs.append(arg)
                 if _lhs:
-                    return self.func(Add(*_lhs), Add(*_rhs), equivalent=self)            
+                    return self.func(Add(*_lhs), Add(*_rhs), equivalent=self)
+            elif rhs.is_KroneckerDelta:
+                return self.invert_type(*rhs.args, equivalent=self).simplify()
+            
         elif rhs == 0:
             if lhs._coeff_isneg():
                 return self.func(-lhs, 0, equivalent=self)
@@ -1123,19 +1176,9 @@ class Equal(Relational):
                         _lhs.append(arg)
                 if _rhs:
                     return self.func(Add(*_lhs), Add(*_rhs), equivalent=self).simplify()
-                        
-        elif lhs.is_Piecewise:
-            if rhs.is_Piecewise:
-                ...
-            else:
-                cond = lhs.select_cond(rhs)
-                if cond is not None:
-                    return cond.copy(equivalent=self)
-                
-        elif rhs.is_Piecewise:
-            cond = rhs.select_cond(lhs)
-            if cond is not None:
-                return cond.copy(equivalent=self)
+            elif lhs.is_KroneckerDelta:
+                return self.invert_type(*lhs.args, equivalent=self).simplify()
+                                        
         elif lhs.is_Intersection and rhs.is_EmptySet:
             this = self.simplify_Intersection(lhs)
             if this is not None:
@@ -1224,7 +1267,20 @@ class Equal(Relational):
 
     def __and__(self, other):
         """Overloading for & operator"""
-        if isinstance(other, (StrictLessThan, StrictGreaterThan)):
+        if other.is_Equal:
+            if self.rhs == other.lhs:
+                return self.func(self.lhs, other.rhs, equivalent=[self, other])
+            elif self.lhs == other.rhs:
+                return self.func(other.lhs, self.rhs, equivalent=[self, other])
+            elif self.lhs == other.lhs:
+                if self.rhs == other.rhs:
+                    return self
+                return self.func(self.rhs, other.rhs, equivalent=[self, other])
+            elif self.rhs == other.rhs:
+                return self.func(self.lhs, other.lhs, equivalent=[self, other])
+        elif other.is_ConditionalBoolean:
+            return self.bfn(self.__and__, other)            
+        elif isinstance(other, (StrictLessThan, StrictGreaterThan)):
             if set(self.args) == set(other.args):
                 return S.false.copy(given=[self, other])
         return Relational.__and__(self, other)
@@ -1232,18 +1288,6 @@ class Equal(Relational):
     def as_KroneckerDelta(self):
         from sympy.functions.special.tensor_functions import KroneckerDelta
         return KroneckerDelta(*self.args)
-
-    def conclude(self):
-        from sympy import Exists
-        if self.lhs.is_Determinant:
-            if self.rhs.is_nonzero:                
-                C = self.lhs.generate_free_symbol(singular=False, **self.lhs.arg.dtype.dict)
-                return Exists[C](self.func(self.lhs.arg, C), given=self)
-        if self.rhs.is_Determinant:
-            if self.lhs.is_nonzero:
-                C = self.lhs.generate_free_symbol(singular=False, **self.rhs.arg.dtype.dict)
-                return Exists[C](self.func(self.rhs.arg, C), given=self)
-        return self
 
     def _sympystr(self, p):
         return '%s == %s' % tuple(p._print(arg) for arg in self.args)
@@ -1278,6 +1322,17 @@ class Equal(Relational):
             return exp.reversed_type((self.lhs - exp.lhs).simplify(), (self.rhs - exp.rhs).simplify(), **kwargs).simplify()
         return Relational.__sub__(self, exp)
 
+    def inverse(self):        
+        if self.lhs.shape:
+            from sympy.matrices.expressions.determinant import det
+            if det(self.lhs).is_nonzero or det(self.rhs).is_nonzero:
+                return self.func(self.lhs.inverse(), self.rhs.inverse(), equivalent=self)            
+        else:
+            if self.lhs.is_nonzero or self.rhs.is_nonzero:
+                return self.func(1 / self.lhs, 1 / self.rhs, equivalent=self)
+            
+        return self
+
     def simplify_condition_on_random_variable(self):
         lhs, rhs = self.args
         from sympy.stats.rv import pspace
@@ -1306,7 +1361,11 @@ class Equal(Relational):
             
         return "%s = %s" % (p._print(lhs), p._print(rhs))
 
+    def domain_conditioned(self, var):
+        if not self.lhs.is_set:            
+            return Relational.domain_conditioned(self, var)
 
+    
 Eq = Equality = Equal
 
 
@@ -1365,7 +1424,13 @@ class Unequal(Relational):
         if evaluate:
             is_equal = Equality(lhs, rhs)
             if isinstance(is_equal, BooleanAtom):
-                return is_equal.invert().copy(**options)
+                if 'plausible' in options:
+                    if is_equal:
+                        options['plausible'] = False
+                    else:
+                        del options['plausible']
+                else:
+                    return is_equal.invert().copy(**options)
 
         return Relational.__new__(cls, lhs, rhs, **options)
 
@@ -1436,7 +1501,7 @@ class Unequal(Relational):
 
     def simplify(self, deep=False, wrt=None):
         if deep or wrt is not None:
-            return Boolean.simplify(self, deep=True, wrt=wrt)
+            return BinaryCondition.simplify(self, deep=True, wrt=wrt)
 
         from sympy.sets.contains import NotSubset
         lhs, rhs = self.args
@@ -1502,6 +1567,10 @@ class Unequal(Relational):
             return self.func(self.lhs * exp.lhs, self.rhs * exp.rhs, given=[self, exp])
         
         return Relational.__mul__(self, exp)
+
+    def domain_conditioned(self, var):
+        if not self.lhs.is_set:            
+            return Relational.domain_conditioned(self, var)
 
 
 Ne = Unequality = Unequal
@@ -1705,7 +1774,7 @@ class _Less(_Inequality):
                         return other
                         
         if x is not None:                
-            return Contains(x, Interval(left, right, left_open=left_open, right_open=right_open, integer=x.is_integer), equivalent=[self, other])
+            return Contains(x, Interval(left, right, left_open=left_open, right_open=right_open, integer=x.is_integer), equivalent=[self, other]).simplify()
     
         return Relational.__and__(self, other)
 

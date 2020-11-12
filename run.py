@@ -5,26 +5,71 @@ import sys
 # pip install mpmath==1.1.0
 # pip install oauthlib
 from axiom import prove
-if __name__ == '__main__':
+import os
 
-    if len(sys.argv) == 1:         
+def listdir(rootdir, sufix='.php'):
+    for name in os.listdir(rootdir):
+        path = os.path.join(rootdir, name)
+
+        if path.endswith(sufix):
+            yield path
+        elif os.path.isdir(path):
+            yield from listdir_recursive(path, sufix)
+
+
+def listdir_recursive(rootdir, sufix='.php'):
+    for name in os.listdir(rootdir):
+        path = os.path.join(rootdir, name)
+
+        if path.endswith(sufix):
+            yield path
+        elif os.path.isdir(path):
+            yield from listdir_recursive(path, sufix)
+
+def clean():    
+    for php in listdir(os.path.abspath(os.path.dirname(__file__)) + '/axiom'):
+        py = php.replace('.php', '.py')
+        if not os.path.exists(py):
+            print(php)
+            os.remove(php)
+    
+def args_kwargs(argv):
+    args = []
+    kwargs = {}
+    for arg in argv:
+        arr = arg.split('=')
+        if len(arr) == 2:
+            key, value = arr
+            kwargs[key] = value
+        else:
+            args.append(arg)
+    return args, kwargs
+
+if __name__ == '__main__':
+    args, kwargs = args_kwargs(sys.argv[1:])
+    if kwargs:
+        if 'clean' in kwargs:
+            clean()
+
+    if not args:         
         prove.prove()
-    else:
+    else:            
         unproven = []
 
         erroneous = []
 
         websites = []
 
-        import axiom
+        import axiom  # @UnusedImport
         def generator():
-            for package in sys.argv[1:]:
-                packageStr = package.replace('/', '.').replace('\\', '.')
-                package = eval(packageStr)
+            for package in args:
+                package = package.replace('/', '.').replace('\\', '.')
+                package = eval(package)
                 ret = package.prove(package.__file__)
-                yield packageStr, ret
+                yield package.__file__, ret
                 
         prove.post_process(generator())
+#         print('prove.print_summary()')
         prove.print_summary()
 #     cd D:/Program Files/Wolfram Research/Mathematica/12.1/SystemFiles/Components/WolframClientForPython
 #     pip install .
@@ -52,8 +97,9 @@ if __name__ == '__main__':
 # http://www.gnu.org/software/emacs/download.html
 
 # https://doc.sagemath.org/html/en/reference/index.html
+# https://doc.sagemath.org/html/en/reference/libs/sage/libs/ecl.html
 
 # http://www.gigamonkeys.com/book/
 # https://common-lisp.net/downloads
 
-# python run.py axiom\statistics\guassion\sum axiom\statistics\binomial\sum axiom\statistics\ChiSquared\definition axiom\statistics\Poisson\sum
+# python run.py axiom.sets.contains.imply.equality.union axiom.sets.contains.imply.subset

@@ -143,6 +143,31 @@ class Transpose(MatrixExpr):
             domain &= arg.domain_defined(x)
         return domain
 
+    def __getitem__(self, key):
+        from sympy.matrices.expressions.slice import MatrixSlice
+        if not isinstance(key, tuple) and isinstance(key, slice):            
+            return MatrixSlice(self, key, (0, None, 1))
+        if isinstance(key, tuple): 
+            if len(key) == 1:
+                key = key[0]
+            elif len(key) == 2:
+                i, j = key
+                if isinstance(i, slice):
+                    if isinstance(j, slice):
+                        return self._entry(i, j)
+                    else:
+                        return self.func(self.arg[j])
+#                     return MatrixSlice(self, i, j)
+                i, j = _sympify(i), _sympify(j)
+                if self.valid_index(i, j) != False:
+                    return self._entry(i, j)
+                else:
+                    raise IndexError("Invalid indices (%s, %s)" % (i, j))
+        from sympy import Integer, Symbol, Expr
+        if isinstance(key, (int, Integer, Symbol, Expr)):
+            return self._entry(key)
+#             # row-wise decomposition of matrix
+        raise IndexError("Invalid index, wanted %s[i,j]" % self)
 
 def transpose(expr):
     """Matrix transpose"""

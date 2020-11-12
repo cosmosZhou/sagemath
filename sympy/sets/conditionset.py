@@ -144,7 +144,7 @@ class ConditionSet(Set):
             expr, variable, base_set = self.base_set.image_set()
             from sympy import sets
             condition = Contains(variable, base_set).simplify() & self.condition._subs(self.variable, expr)
-            return sets.image_set(variable, expr, ConditionSet(variable, condition))
+            return sets.image_set(expr, variable, ConditionSet(variable, condition))
         except:
             ...
 

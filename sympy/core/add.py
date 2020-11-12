@@ -608,8 +608,16 @@ class Plus(Expr, AssocOp):
                 break
             
         if delta is not None:
-            delta0 = self._subs(delta, S.Zero).is_zero
-            delta1 = self._subs(delta, S.One).is_zero
+            #to prevent infinite loop!
+            this = self._subs(delta, S.Zero)
+            if this is self:
+                return 
+            delta0 = this.is_zero
+            
+            this = self._subs(delta, S.One)
+            if this is self:
+                return             
+            delta1 = this.is_zero
             if delta0 and delta1:
                 return True
             if delta0 == False and delta1 == False:
@@ -644,6 +652,10 @@ class Plus(Expr, AssocOp):
         f = self.max()
         if f is not self and f.is_extended_nonpositive:
             return False
+        
+        if all(arg.is_extended_nonnegative for arg in self.args):
+            if any(arg.is_extended_positive for arg in self.args):
+                return True            
     
     def _eval_is_extended_negative(self):
         is_infinitesimal = self.is_infinitesimal
@@ -661,6 +673,10 @@ class Plus(Expr, AssocOp):
         f = self.min()
         if f is not self and f.is_extended_nonnegative:
             return False
+        
+        if all(arg.is_extended_nonpositive for arg in self.args):
+            if any(arg.is_extended_negative for arg in self.args):
+                return True            
 
     def _eval_subs(self, old, new):
         if not old.is_Add:
@@ -769,14 +785,14 @@ class Plus(Expr, AssocOp):
             im_part.append(im)
         return (self.func(*re_part), self.func(*im_part))
 
-    def _eval_as_leading_term(self, x):
+    def _eval_as_leading_term(self, x, cdir=0):
         from sympy import expand_mul, factor_terms
 
         old = self
 
         expr = expand_mul(self)
         if not expr.is_Add:
-            return expr.as_leading_term(x)
+            return expr.as_leading_term(x, cdir=cdir)
 
         infinite = [t for t in expr.args if t.is_infinite]
 
@@ -1035,7 +1051,7 @@ class Plus(Expr, AssocOp):
                 coefficient += p.nth(d)
 
             i, j = delta.args
-            _coefficient = coefficient._subs(j, i)
+            _coefficient = coefficient._subs(j, i, symbol=False)
             if _coefficient == coefficient:
                 __coefficient = coefficient._subs(i, j)
                 if __coefficient.is_zero:
@@ -1072,7 +1088,7 @@ class Plus(Expr, AssocOp):
         this = self.simplifyPiecewise()
         if this is not self:
             if deep:
-                return this.simplify(deep=True)
+                return this.simplify(deep=deep)
             return this         
 
         this = self.simplifyKroneckerDelta()
@@ -1307,35 +1323,45 @@ class Plus(Expr, AssocOp):
             return self.func(*self.args[:-1])
         return self
 
-    def as_one_term(self):
-        from sympy import Integral
-        function = []
-        limits = None
-        for arg in self.args:
-
-            if isinstance(arg, Integral):
-                function.append(arg.function)
-                if limits is None:
-                    limits = arg.limits
+    def astype(self, cls):
+        if cls.is_AddWithLimits:
+            function = []
+            limits = None        
+            for arg in self.args:
+                if isinstance(arg, cls):
+                    function.append(arg.function)
+                    if limits is None:
+                        limits = arg.limits
+                    else:
+                        if limits != arg.limits:
+                            return self
+                    continue
+    
+                additive = arg.astype(cls)
+                if additive is None:
+                    return self
                 else:
-                    if limits != arg.limits:
-                        return self
-                continue
+                    if limits is None:
+                        limits = additive.limits
+                    else:
+                        if limits != additive.limits:
+                            return self
+    
+                    function.append(additive.function)
+    
+            return cls(self.func(*function), *limits)
+        elif cls.is_MinMaxBase:                                
+            for i, arg in enumerate(self.args):
+                if not isinstance(arg, cls):
+                    continue
+                args = [*self.args]
+                del args[i]
+                
+                rest = self.func(*args)
+                return cls(*(e + rest for e in arg.args))
+        return self
 
-            coeff, additive = arg.as_Integral()
-            if coeff is None:
-                return self
-            else:
-                if limits is None:
-                    limits = additive.limits
-                else:
-                    if limits != additive.limits:
-                        return self
-
-                function.append(additive.function * coeff)
-
-        return Integral(self.func(*function), *limits)
-
+        
     def __iter__(self):
         raise TypeError
 

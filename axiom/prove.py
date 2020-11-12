@@ -7,7 +7,7 @@ import time
 from os.path import getsize
 from multiprocessing import cpu_count
 from queue import PriorityQueue
-
+from functools import singledispatch
 
 count = 0
 
@@ -17,12 +17,13 @@ erroneous = []
 
 websites = []
 
-insurmountable = {'axiom.calculus.integral.intermediate_value_theorem',
-                  'axiom.discrete.fermat.last_theorem',
-                  'axiom.statistics.kullback_leibler',
-                  'axiom.trigonometry.cosine.theorem',
-                  } 
-
+insurmountable = {*"""
+axiom.calculus.integral.intermediate_value_theorem
+axiom.calculus.trigonometry.cosine.theorem
+axiom.discrete.fermat.last_theorem
+axiom.discrete.combinatorics.stirling.premier.recurrence
+axiom.statistics.kullback_leibler
+""".split()}
 
 def readFolder(rootdir, sufix='.py'):
     for name in os.listdir(rootdir):
@@ -41,7 +42,6 @@ def readFolder(rootdir, sufix='.py'):
             package = '.'.join(paths[index:])
             if package in insurmountable:
                 continue                
-
             global count
             count += 1
             path += '.php'
@@ -61,13 +61,11 @@ def readFolder(rootdir, sufix='.py'):
             yield from readFolder(path, sufix)
 
 
-def process_multiple(packages):
-    return [process(package) for package in packages]
-
-    
-def process(package):
+@singledispatch    
+def process(package, debug=False):
     try:    
-        print(package)
+        if debug:
+            print(package)
         package = eval(package)
     except AttributeError as e:   
         print(e)
@@ -95,12 +93,19 @@ def process(package):
 
         return dirname + sep + apply_package.replace('.', sep) + '.py', None
     file = package.__file__
-    ret = package.prove(file)
+    ret = package.prove(file, debug=debug)
     return file, ret
+
+
+@process.register(list) 
+def _(packages, debug=False):
+    return [process(package, debug=debug) for package in packages]
+
 
 start = time.time()    
 
-def prove():    
+
+def prove(debug=False, parallel=True):
     rootdir = os.path.dirname(__file__)
     
     def generator(): 
@@ -111,15 +116,12 @@ def prove():
                 yield from readFolder(path)
 
     tasks = {task : timing for task, timing in generator()}
-    processes = []
-    timings = []
-    for _ in range(cpu_count() * 2):
-        processes.append([])
-        timings.append(0)
+    packages = tuple([] for _ in range(cpu_count() * 2))
+    timings = [0 for _ in range(cpu_count() * 2)]
     
     total_timing = sum(timing for task, timing in tasks.items())
     
-    average_timing = total_timing / len(processes)
+    average_timing = total_timing / len(packages)
     print('total_timing =', total_timing)
     print('average_timing =', average_timing)
     
@@ -132,20 +134,22 @@ def prove():
         
     for task, timing in tasks:
         t, i = pq.get()
-        processes[i].append(task)
+        packages[i].append(task)
         timings[i] += timing
         pq.put((timings[i], i))
         
-    for proc, timing in zip(processes, timings):
-        print(timing, proc)
+    for proc, timing in zip(packages, timings):
+        print('timing =', timing)
+        print('python run.py ' + ' '.join(proc))
         
     print('total timing =', sum(timings))
     
-    for array in parellel_process(process_multiple, processes):
+    for array in process(packages, debug=debug, parallel=parallel):
         post_process(array)
         
     print('in all %d axioms' % count)
     print_summary()
+
     
 def print_summary():
     if unproven:
@@ -166,6 +170,7 @@ def print_summary():
     print('cost time =', timing / 60, 'minutes =', timing, 'seconds')
     print('total unprovable =', len(unproven))
     print('total erroneous =', len(erroneous))
+
         
 def post_process(result):
     for package, ret in result: 
@@ -175,20 +180,38 @@ def post_process(result):
             erroneous.append(package)
         else:
             continue
-        websites.append("http://localhost" + package[len(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))):-3] + ".php")
         
-def parellel_process(process, items):
-#     return map(process, items)
-    from multiprocessing import Pool
-    with Pool(processes=cpu_count() * 2) as pool:
-        return pool.map(process, items)
+#         print('__file__ =', __file__)
+#         print('os.path.dirname(os.path.dirname(os.path.dirname(__file__))) =', os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+#         print('package =', package)
+        
+        websites.append("http://localhost" + package[len(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))):-3] + ".php")
 
+def process_dubug(packages):
+    return process(packages, debug=True)
+
+@process.register(tuple) 
+def _(items, debug=False, parallel=True):  # @DuplicatedSignature
+    proc = process_dubug if debug else process 
+    if parallel:        
+        from multiprocessing import Pool
+        
+        with Pool(processes=cpu_count() * 2) as pool:
+            return pool.map(proc, items)
+    else:
+        return map(proc, items)
        
-if __name__ == '__main__':    
-    prove()
-    
 # Reverse[Reverse[Minors[mat], 1], 2] == Map[Reverse, Minors[mat], {0, 1}]
 
 # adj[m_] := Map[Reverse, Minors[Transpose[m], Length[m] - 1], {0, 1}] Table[(-1)^(i + j), {i, Length[m]}, {j, Length[m]}]
+
+# to create a matrix symbol 
 # $Assumptions = M \[Element] Matrices[{n, n}, Reals, Symmetric[{1, 2}]]
 # Normal[SparseArray[{{i_, i_} -> i^2}, {10, 10}]] // MatrixForm
+
+
+if __name__ == '__main__':
+#     prove(debug=True, parallel=False)    
+#     prove(debug=True)
+    prove()
+    

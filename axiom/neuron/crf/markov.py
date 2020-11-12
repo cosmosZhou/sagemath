@@ -7,7 +7,7 @@ from sympy.concrete.products import Product
 from sympy.stats.symbolic_probability import Probability as P
 from axiom.statistics import bayes
 from sympy.core.numbers import oo
-from axiom import algebre
+from axiom import algebre, sets
 
 
 def assumptions():
@@ -90,7 +90,7 @@ def prove(Eq):
     
     Eq << Eq[2].subs(k, k + 1)
     
-    Eq << Eq[-1].as_ForAll()
+    Eq << sets.ou.imply.forall.apply(Eq[-1], wrt=k)
     
     _, Eq.y_nonzero_assumption = bayes.inequality.et.apply(Eq.xy_nonzero_assumption).split()
     Eq <<= Eq[-1] & Eq.y_nonzero_assumption
@@ -124,7 +124,7 @@ def prove(Eq):
     t = Eq.factorization.rhs.args[-1].limits[0][2]
     Eq << Eq[-1].subs(k, t)    
     
-    Eq << Eq[-1].as_ForAll()
+    Eq << sets.ou.imply.forall.apply(Eq[-1])
     
     Eq <<= Eq[-1] & Eq.first
 

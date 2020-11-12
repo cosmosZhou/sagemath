@@ -1,13 +1,10 @@
-from __future__ import print_function, division
-
 from sympy.core import sympify
 from sympy.core.add import Add
 from sympy.core.cache import cacheit
-from sympy.core.compatibility import range
-from sympy.core.function import Function, ArgumentIndexError
-from sympy.core.logic import fuzzy_not
+from sympy.core.function import (Function, ArgumentIndexError, expand_mul)
+from sympy.core.logic import fuzzy_and, fuzzy_not, fuzzy_or
 from sympy.core.mul import Mul
-from sympy.core.numbers import Integer
+from sympy.core.numbers import Integer, Rational
 from sympy.core.power import Pow
 from sympy.core.singleton import S
 from sympy.core.symbol import Wild, Dummy
@@ -126,10 +123,16 @@ class exp_polar(ExpBase):
     r"""
     Represent a 'polar number' (see g-function Sphinx documentation).
 
+    Explanation
+    ===========
+
     ``exp_polar`` represents the function
     `Exp: \mathbb{C} \rightarrow \mathcal{S}`, sending the complex number
     `z = a + bi` to the polar number `r = exp(a), \theta = b`. It is one of
     the main functions to construct polar numbers.
+
+    Examples
+    ========
 
     >>> from sympy import exp_polar, pi, I, exp
 
@@ -148,16 +151,16 @@ class exp_polar(ExpBase):
     See Also
     ========
 
-    sympy.simplify.simplify.powsimp
-    sympy.functions.elementary.complexes.polar_lift
-    sympy.functions.elementary.complexes.periodic_argument
-    sympy.functions.elementary.complexes.principal_branch
+    sympy.simplify.powsimp.powsimp
+    polar_lift
+    periodic_argument
+    principal_branch
     """
 
     is_polar = True
     is_comparable = False  # cannot be evalf'd
 
-    def _eval_Abs(self):  # Abs is never a polar number
+    def _eval_Abs(self):   # Abs is never a polar number
         from sympy.functions.elementary.complexes import re
         return exp(re(self.args[0]))
 
@@ -187,13 +190,31 @@ class exp_polar(ExpBase):
     def as_base_exp(self):
         # XXX exp_polar(0) is special!
         if self.args[0] == 0:
-            return self, S(1)
+            return self, S.One
         return ExpBase.as_base_exp(self)
 
 
 class exp(ExpBase):
     """
     The exponential function, :math:`e^x`.
+
+    Examples
+    ========
+
+    >>> from sympy.functions import exp
+    >>> from sympy.abc import x
+    >>> from sympy import I, pi
+    >>> exp(x)
+    exp(x)
+    >>> exp(x).diff(x)
+    exp(x)
+    >>> exp(I*pi)
+    -1
+
+    Parameters
+    ==========
+
+    arg : Expr
 
     See Also
     ========
@@ -293,13 +314,13 @@ class exp(ExpBase):
 
     def _eval_subs(self, old, new):
         # keep processing of power-like args centralized in Pow
-        if old.is_Power:  # handle (exp(3*log(x))).subs(x**2, z) -> z**(3/2)
-            old = exp(old.exp * log(old.base))
+        if old.is_Pow:  # handle (exp(3*log(x))).subs(x**2, z) -> z**(3/2)
+            old = exp(old.exp*log(old.base))
         elif old is S.Exp1 and new.is_Function:
             old = exp
         if isinstance(old, exp) or old is S.Exp1:
             f = lambda a: Pow(*a.as_base_exp(), evaluate=False) if (
-                a.is_Power or isinstance(a, exp)) else a
+                a.is_Pow or isinstance(a, exp)) else a
             return Pow._eval_subs(f(self), f(old), new)
 
         if old is exp and not new.is_Function:
@@ -307,7 +328,7 @@ class exp(ExpBase):
         return Function._eval_subs(self, old, new)
 
     def _eval_is_extended_real(self):
-        if self.arg.is_extended_real:
+        if self.args[0].is_extended_real:
             return True
         elif self.args[0].is_imaginary:
             arg2 = -S(2) * S.ImaginaryUnit * self.args[0] / S.Pi
@@ -331,7 +352,7 @@ class exp(ExpBase):
             arg2 = -S.ImaginaryUnit * self.args[0] / S.Pi
             return arg2.is_even
 
-    def _eval_nseries(self, x, n, logx):
+    def _eval_nseries(self, x, n, logx, cdir=0):
         # NOTE Please see the comment at the beginning of this file, labelled
         #      IMPORTANT.
         from sympy import limit, oo, Order, powsimp
@@ -361,14 +382,25 @@ class exp(ExpBase):
             l.append(g)
         return Add(*l) + Order(x ** n, x)
 
-    def _eval_as_leading_term(self, x):
+    def _eval_as_leading_term(self, x, cdir=0):
         from sympy import Order
         arg = self.args[0]
         if arg.is_Add:
             return Mul(*[exp(f).as_leading_term(x) for f in arg.args])
-        arg = self.args[0].as_leading_term(x)
-        if Order(1, x).contains(arg):
+        arg_1 = arg.as_leading_term(x)
+        if Order(x, x).contains(arg_1):
             return S.One
+        if Order(1, x).contains(arg_1):
+            return exp(arg_1)
+        ####################################################
+        # The correct result here should be 'None'.        #
+        # Indeed arg in not bounded as x tends to 0.       #
+        # Consequently the series expansion does not admit #
+        # the leading term.                                #
+        # For compatibility reasons, the return value here #
+        # is the original function, i.e. exp(arg),         #
+        # instead of None.                                 #
+        ####################################################
         return exp(arg)
 
     def _eval_rewrite_as_sin(self, arg, **kwargs):
@@ -413,13 +445,53 @@ class exp(ExpBase):
             integer = True
         return Interval(-oo, oo, integer=integer)
 
+def match_real_imag(expr):
+    """
+    Try to match expr with a + b*I for real a and b.
+
+    ``match_real_imag`` returns a tuple containing the real and imaginary
+    parts of expr or (None, None) if direct matching is not possible. Contrary
+    to ``re()``, ``im()``, ``as_real_imag()``, this helper won't force things
+    by returning expressions themselves containing ``re()`` or ``im()`` and it
+    doesn't expand its argument either.
+
+    """
+    r_, i_ = expr.as_independent(S.ImaginaryUnit, as_Add=True)
+    if i_ == 0 and r_.is_real:
+        return (r_, i_)
+    i_ = i_.as_coefficient(S.ImaginaryUnit)
+    if i_ and i_.is_real and r_.is_real:
+        return (r_, i_)
+    else:
+        return (None, None) # simpler to check for than None
+
 
 class Log(Function):
     r"""
     The natural logarithm function `\ln(x)` or `\log(x)`.
+
+    Explanation
+    ===========
+
     Logarithms are taken with the natural base, `e`. To get
     a logarithm of a different base ``b``, use ``log(x, b)``,
     which is essentially short-hand for ``log(x)/log(b)``.
+
+    ``log`` represents the principal branch of the natural
+    logarithm. As such it has a branch cut along the negative
+    real axis and returns values having a complex argument in
+    `(-\pi, \pi]`.
+
+    Examples
+    ========
+
+    >>> from sympy import log, sqrt, S, I
+    >>> log(8, 2)
+    3
+    >>> log(S(8)/3, 2)
+    -log(3)/log(2) + 3
+    >>> log(-1 + I*sqrt(3))
+    log(2) + 2*I*pi/3
 
     See Also
     ========
@@ -449,6 +521,7 @@ class Log(Function):
         from sympy import unpolarify
         from sympy.calculus import AccumBounds
         from sympy.sets.setexpr import SetExpr
+        from sympy.functions.elementary.complexes import Abs
 
         arg = sympify(arg)
 
@@ -464,11 +537,7 @@ class Log(Function):
                 # or else expand_log in Mul would have to handle this
                 n = multiplicity(base, arg)
                 if n:
-                    den = base ** n
-                    if den.is_Integer:
-                        return n + log(arg // den) / log(base)
-                    else:
-                        return n + log(arg / den) / log(base)
+                    return n + log(arg / base**n) / log(base)
                 else:
                     return log(arg) / log(base)
             except ValueError:
@@ -479,7 +548,7 @@ class Log(Function):
                 return cls(arg)
 
         if arg.is_Number:
-            if arg is S.Zero:
+            if arg.is_zero:
                 return S.ComplexInfinity
             elif arg is S.One:
                 return S.Zero
@@ -492,10 +561,16 @@ class Log(Function):
             elif arg.is_Rational and arg.p == 1:
                 return -cls(arg.q)
 
-        if arg is S.ComplexInfinity:
-                return S.ComplexInfinity
+        I = S.ImaginaryUnit
         if isinstance(arg, exp) and arg.args[0].is_extended_real:
             return arg.args[0]
+        elif isinstance(arg, exp) and arg.args[0].is_number:
+            r_, i_ = match_real_imag(arg.args[0])
+            if i_ and i_.is_comparable:
+                i_ %= 2*S.Pi
+                if i_ > S.Pi:
+                    i_ -= 2*S.Pi
+                return r_ + expand_mul(i_ * I, deep=False)
         elif isinstance(arg, exp_polar):
             return unpolarify(arg.exp)
         elif isinstance(arg, AccumBounds):
@@ -508,15 +583,18 @@ class Log(Function):
 
         if arg.is_number:
             if arg.is_negative:
-                return S.Pi * S.ImaginaryUnit + cls(-arg)
+                return S.Pi * I + cls(-arg)
             elif arg is S.ComplexInfinity:
                 return S.ComplexInfinity
             elif arg is S.Exp1:
                 return S.One
 
+        if arg.is_zero:
+            return S.ComplexInfinity
+
         # don't autoexpand Pow or Mul (see the issue 3351):
         if not arg.is_Add:
-            coeff = arg.as_coefficient(S.ImaginaryUnit)
+            coeff = arg.as_coefficient(I)
 
             if coeff is not None:
                 if coeff is S.Infinity:
@@ -525,9 +603,64 @@ class Log(Function):
                     return S.Infinity
                 elif coeff.is_Rational:
                     if coeff.is_nonnegative:
-                        return S.Pi * S.ImaginaryUnit * S.Half + cls(coeff)
+                        return S.Pi * I * S.Half + cls(coeff)
                     else:
-                        return -S.Pi * S.ImaginaryUnit * S.Half + cls(-coeff)
+                        return -S.Pi * I * S.Half + cls(-coeff)
+
+        if arg.is_number and arg.is_algebraic:
+            # Match arg = coeff*(r_ + i_*I) with coeff>0, r_ and i_ real.
+            coeff, arg_ = arg.as_independent(I, as_Add=False)
+            if coeff.is_negative:
+                coeff *= -1
+                arg_ *= -1
+            arg_ = expand_mul(arg_, deep=False)
+            r_, i_ = arg_.as_independent(I, as_Add=True)
+            i_ = i_.as_coefficient(I)
+            if coeff.is_real and i_ and i_.is_real and r_.is_real:
+                if r_.is_zero:
+                    if i_.is_positive:
+                        return S.Pi * I * S.Half + cls(coeff * i_)
+                    elif i_.is_negative:
+                        return -S.Pi * I * S.Half + cls(coeff * -i_)
+                else:
+                    from sympy.simplify import ratsimp
+                    # Check for arguments involving rational multiples of pi
+                    t = (i_/r_).cancel()
+                    t1 = (-t).cancel()
+                    atan_table = {
+                        # first quadrant only
+                        sqrt(3): S.Pi/3,
+                        1: S.Pi/4,
+                        sqrt(5 - 2*sqrt(5)): S.Pi/5,
+                        sqrt(2)*sqrt(5 - sqrt(5))/(1 + sqrt(5)): S.Pi/5,
+                        sqrt(5 + 2*sqrt(5)): S.Pi*Rational(2, 5),
+                        sqrt(2)*sqrt(sqrt(5) + 5)/(-1 + sqrt(5)): S.Pi*Rational(2, 5),
+                        sqrt(3)/3: S.Pi/6,
+                        sqrt(2) - 1: S.Pi/8,
+                        sqrt(2 - sqrt(2))/sqrt(sqrt(2) + 2): S.Pi/8,
+                        sqrt(2) + 1: S.Pi*Rational(3, 8),
+                        sqrt(sqrt(2) + 2)/sqrt(2 - sqrt(2)): S.Pi*Rational(3, 8),
+                        sqrt(1 - 2*sqrt(5)/5): S.Pi/10,
+                        (-sqrt(2) + sqrt(10))/(2*sqrt(sqrt(5) + 5)): S.Pi/10,
+                        sqrt(1 + 2*sqrt(5)/5): S.Pi*Rational(3, 10),
+                        (sqrt(2) + sqrt(10))/(2*sqrt(5 - sqrt(5))): S.Pi*Rational(3, 10),
+                        2 - sqrt(3): S.Pi/12,
+                        (-1 + sqrt(3))/(1 + sqrt(3)): S.Pi/12,
+                        2 + sqrt(3): S.Pi*Rational(5, 12),
+                        (1 + sqrt(3))/(-1 + sqrt(3)): S.Pi*Rational(5, 12)
+                    }
+                    if t in atan_table:
+                        modulus = ratsimp(coeff * Abs(arg_))
+                        if r_.is_positive:
+                            return cls(modulus) + I * atan_table[t]
+                        else:
+                            return cls(modulus) + I * (atan_table[t] - S.Pi)
+                    elif t1 in atan_table:
+                        modulus = ratsimp(coeff * Abs(arg_))
+                        if r_.is_positive:
+                            return cls(modulus) + I * (-atan_table[t1])
+                        else:
+                            return cls(modulus) + I * (S.Pi - atan_table[t1])
 
     def as_base_exp(self):
         """
@@ -718,7 +851,7 @@ class Log(Function):
             l.append(g)
         return log(a) + b * logx + Add(*l) + Order(p ** n, x)
 
-    def _eval_as_leading_term(self, x):
+    def _eval_as_leading_term(self, x, cdir=0):
         arg = self.args[0].as_leading_term(x)
         if arg is S.One:
             return (self.args[0] - 1).as_leading_term(x)
@@ -761,7 +894,7 @@ class Log(Function):
                     coeff.append(e.arg)
                 else:
                     exponent.append(e)
-            return Add(*coeff) + self.func(Mul(*exponent))
+            return Add(*coeff) + self.func(Mul(*exponent)).simplify()
         if isinstance(arg, Pow):
             base, exponent = arg.args
             if exponent._coeff_isneg():
@@ -900,8 +1033,7 @@ class LambertW(Function):
         else:
             return s.is_algebraic
 
-
-class softmax(Function):
+class Softmax(Function):
     r"""
     x is a vector
     softmax(x) = exp(x) / Sum(exp(x))
@@ -925,13 +1057,25 @@ class softmax(Function):
     def simplify(self, **_):
         return self
 
-    def __getitem__(self, index):
+    def __getitem__(self, indices):
         if len(self.shape) == 1:
-            from sympy.concrete.summations import Sum
-            x = self.arg
-            return exp(x[index]) / Sum(exp(x))
-        return self.func(self.arg[index])
+            return self.definition[indices]
+        if isinstance(indices, tuple):
+            i, *indices = indices
+            return self.func(self.arg[i])[indices]
+        else:
+            return self.func(self.arg[indices])
 
     def __iter__(self):
         raise TypeError
 
+    @property
+    def definition(self):
+        from sympy.concrete.summations import Sum
+        x = self.arg
+        return exp(x) / Sum(exp(x))
+
+    def _latex(self, p):
+        return r"softmax\left(%s\right)" % p._print(self.arg)
+    
+softmax = Softmax

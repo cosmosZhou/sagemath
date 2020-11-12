@@ -46,7 +46,7 @@ def prove(Eq):
     
     Eq.s_definition, Eq.G_definition, Eq.x_definition, Eq.given, Eq.logits_recursion = apply(G, x, s, given=given)
 
-    Eq << Eq.s_definition.subs(Eq.given)
+    Eq << Eq.s_definition.this.rhs.subs(Eq.given)
     
     Eq << Eq[-1].this.rhs.args[1].as_Add()
     

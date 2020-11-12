@@ -29,7 +29,9 @@ def prove(Eq):
     
     i = Symbol.i(integer=True, domain=[0, n])
     
-    Eq << (Eq[-1][i], Eq[-2][i])
+    Eq << Eq[-1][i]
+    
+    Eq << U[i].this.definition
     
     Eq << Eq[-2].this.rhs.as_KroneckerDelta()
     
