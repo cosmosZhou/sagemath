@@ -3,7 +3,7 @@ include_once 'index.html';
 ?>
 
 welcome to
-<a href=http://www.cosmosstudio.cn/sympy/axiom>
+<a href=http://www.cosmosstudio.cn/sagemath/axiom>
 	http://www.cosmosstudio.cn/</a>
 <br>
 
