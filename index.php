@@ -7,13 +7,13 @@ welcome to
 	http://www.cosmosstudio.cn/</a>
 <br>
 
-<a href=http://www.cosmosstudio.cn/sympy/axiom>
+<a href=http://www.cosmosstudio.cn/sagemath/axiom>
 	http://www.cosmosstudio.cn/</a>
 is a website for mathematical axioms proving system,
 <br>
 
 based on open-source symbolic computation project of
-<a href=https://github.com/cosmosZhou/sympy>sympy</a>
+<a href=https://github.com/cosmosZhou/sagemath>sagemath</a>
 
 and
 <a href=http://maxima.sourceforge.net> Maxima </a>
