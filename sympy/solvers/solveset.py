@@ -191,10 +191,8 @@ def _invert_real(f, g_ys, symbol):
 
     n = Dummy('n', real=True)
 
-    if hasattr(f, 'inverse') and not isinstance(f, (
-            TrigonometricFunction,
-            HyperbolicFunction,
-            )):
+#     if hasattr(f, 'inverse') and not isinstance(f, (
+    if False and not isinstance(f, (TrigonometricFunction, HyperbolicFunction)):
         if len(f.args) > 1:
             raise ValueError("Only functions with one argument are supported.")
         return _invert_real(f.args[0],
@@ -215,7 +213,7 @@ def _invert_real(f, g_ys, symbol):
         g, h = f.as_independent(symbol)
 
         if g is not S.One:
-            return _invert_real(h, imageset(Lambda(n, n/g), g_ys), symbol)
+            return _invert_real(h, imageset(Lambda(n, n / g), g_ys), symbol)
 
     if f.is_Power:
         base, expo = f.args
@@ -267,20 +265,20 @@ def _invert_real(f, g_ys, symbol):
                 elif one == S.false:
                     return _invert_real(expo, S.EmptySet, symbol)
 
-
     if isinstance(f, TrigonometricFunction):
         if isinstance(g_ys, FiniteSet):
+
             def inv(trig):
                 if isinstance(f, (sin, csc)):
                     F = asin if isinstance(f, sin) else acsc
-                    return (lambda a: n*pi + (-1)**n*F(a),)
+                    return (lambda a: n * pi + (-1) ** n * F(a),)
                 if isinstance(f, (cos, sec)):
                     F = acos if isinstance(f, cos) else asec
                     return (
-                        lambda a: 2*n*pi + F(a),
-                        lambda a: 2*n*pi - F(a),)
+                        lambda a: 2 * n * pi + F(a),
+                        lambda a: 2 * n * pi - F(a),)
                 if isinstance(f, (tan, cot)):
-                    return (lambda a: n*pi + f.inverse()(a),)
+                    return (lambda a: n * pi + f.inverse()(a),)
 
             n = Dummy('n', integer=True)
             invs = S.EmptySet
@@ -312,7 +310,7 @@ def _invert_complex(f, g_ys, symbol):
         if g is not S.One:
             if g in set([S.NegativeInfinity, S.ComplexInfinity, S.Infinity]):
                 return (h, S.EmptySet)
-            return _invert_complex(h, imageset(Lambda(n, n/g), g_ys), symbol)
+            return _invert_complex(h, imageset(Lambda(n, n / g), g_ys), symbol)
 
     if hasattr(f, 'inverse') and \
        not isinstance(f, TrigonometricFunction) and \
@@ -325,7 +323,7 @@ def _invert_complex(f, g_ys, symbol):
 
     if isinstance(f, exp):
         if isinstance(g_ys, FiniteSet):
-            exp_invs = Union(*[imageset(Lambda(n, I*(2*n*pi + arg(g_y)) +
+            exp_invs = Union(*[imageset(Lambda(n, I * (2 * n * pi + arg(g_y)) + 
                                                log(Abs(g_y))), S.Integers)
                                for g_y in g_ys if g_y != 0])
             return _invert_complex(f.args[0], exp_invs, symbol)
@@ -437,6 +435,7 @@ def _is_finite_with_finite_vars(f, domain=S.Complexes):
     for `finite` will be made finite. All other assumptions are
     left unmodified.
     """
+
     def assumptions(s):
         A = s.assumptions0
         A.setdefault('finite', A.get('finite', True))
@@ -557,7 +556,7 @@ def _solve_trig1(f, symbol, domain):
     g, h = fraction(f)
     y = Dummy('y')
     g, h = g.expand(), h.expand()
-    g, h = g.subs(exp(I*symbol), y), h.subs(exp(I*symbol), y)
+    g, h = g.subs(exp(I * symbol), y), h.subs(exp(I * symbol), y)
     if g.has(symbol) or h.has(symbol):
         return ConditionSet(symbol, Eq(f, 0), S.Reals)
 
@@ -568,7 +567,7 @@ def _solve_trig1(f, symbol, domain):
     if isinstance(solns, FiniteSet):
         if any(isinstance(s, RootOf) for s in solns):
             raise NotImplementedError
-        result = Union(*[invert_complex(exp(I*symbol), s, symbol)[1]
+        result = Union(*[invert_complex(exp(I * symbol), s, symbol)[1]
                        for s in solns])
         return Intersection(result, domain)
     elif solns is S.EmptySet:
@@ -598,7 +597,7 @@ def _solve_trig2(f, symbol, domain):
             raise ValueError("degree of variable inside polynomial should not exceed one")
         if poly_ar.degree() == 0:  # degree 0, don't care
             continue
-        c = poly_ar.all_coeffs()[0]   # got the coefficient of 'symbol'
+        c = poly_ar.all_coeffs()[0]  # got the coefficient of 'symbol'
         numerators.append(Rational(c).p)
         denominators.append(Rational(c).q)
 
@@ -606,12 +605,12 @@ def _solve_trig2(f, symbol, domain):
 
     # ilcm() and igcd() require more than one argument
     if len(numerators) > 1:
-        mu = Rational(2)*ilcm(*denominators)/igcd(*numerators)
+        mu = Rational(2) * ilcm(*denominators) / igcd(*numerators)
     else:
         assert len(numerators) == 1
-        mu = Rational(2)*denominators[0]/numerators[0]
+        mu = Rational(2) * denominators[0] / numerators[0]
 
-    f = f.subs(symbol, mu*x)
+    f = f.subs(symbol, mu * x)
     f = f.rewrite(tan)
     f = expand_trig(f)
     f = together(f)
@@ -626,11 +625,11 @@ def _solve_trig2(f, symbol, domain):
     solns = solveset(g, y, S.Reals) - solveset(h, y, S.Reals)
 
     if isinstance(solns, FiniteSet):
-        result = Union(*[invert_real(tan(symbol/mu), s, symbol)[1]
+        result = Union(*[invert_real(tan(symbol / mu), s, symbol)[1]
                        for s in solns])
-        dsol = invert_real(tan(symbol/mu), oo, symbol)[1]
-        if degree(h) > degree(g):                   # If degree(denom)>degree(num) then there
-            result = Union(result, dsol)            # would be another sol at Lim(denom-->oo)
+        dsol = invert_real(tan(symbol / mu), oo, symbol)[1]
+        if degree(h) > degree(g):  # If degree(denom)>degree(num) then there
+            result = Union(result, dsol)  # would be another sol at Lim(denom-->oo)
         return Intersection(result, domain)
     elif solns is S.EmptySet:
         return S.EmptySet
@@ -720,7 +719,7 @@ def _has_rational_power(expr, symbol):
     (False, 1)
     """
     a, p, q = Wild('a'), Wild('p'), Wild('q')
-    pattern_match = expr.match(a*p**q) or {}
+    pattern_match = expr.match(a * p ** q) or {}
     if pattern_match.get(a, S.Zero) is S.Zero:
         return (False, S.One)
     elif p not in pattern_match.keys():
@@ -755,7 +754,7 @@ def _solve_radical(f, symbol, solveset_solver):
         result = Union(*[imageset(Lambda(y, g_y), f_y_sols)
                          for g_y in g_y_s])
 
-    if isinstance(result, Complement) or isinstance(result,ConditionSet):
+    if isinstance(result, Complement) or isinstance(result, ConditionSet):
         solution_set = result
     else:
         f_set = []  # solutions for FiniteSet
@@ -777,7 +776,7 @@ def _solve_abs(f, symbol, domain):
             Absolute values cannot be inverted in the
             complex domain.'''))
     p, q, r = Wild('p'), Wild('q'), Wild('r')
-    pattern_match = f.match(p*Abs(q) + r) or {}
+    pattern_match = f.match(p * Abs(q) + r) or {}
     f_p, f_q, f_r = [pattern_match.get(i, S.Zero) for i in (p, q, r)]
 
     if not (f_p.is_zero or f_q.is_zero):
@@ -786,9 +785,9 @@ def _solve_abs(f, symbol, domain):
                                                  relational=False, domain=domain, continuous=True)
         q_neg_cond = q_pos_cond.complement(domain)
 
-        sols_q_pos = solveset_real(f_p*f_q + f_r,
+        sols_q_pos = solveset_real(f_p * f_q + f_r,
                                            symbol).intersect(q_pos_cond)
-        sols_q_neg = solveset_real(f_p*(-f_q) + f_r,
+        sols_q_neg = solveset_real(f_p * (-f_q) + f_r,
                                            symbol).intersect(q_neg_cond)
         return Union(sols_q_pos, sols_q_neg)
     else:
@@ -847,7 +846,7 @@ def solve_decomposition(f, symbol, domain):
 
             elif isinstance(y_s, EmptySet):
                 # y_s is not in the range of g in g_s, so no solution exists
-                #in the given domain
+                # in the given domain
                 return y_s
 
             for iset in iter_iset:
@@ -889,10 +888,10 @@ def _solveset(f, symbol, domain, _check=False):
         m, h = h.as_independent(symbol, as_Add=False)
         if m not in set([S.ComplexInfinity, S.Zero, S.Infinity,
                               S.NegativeInfinity]):
-            f = a/m + h  # XXX condition `m != 0` should be added to soln
+            f = a / m + h  # XXX condition `m != 0` should be added to soln
 
     # assign the solvers to use
-    solver = lambda f, x, domain=domain: _solveset(f, x, domain)
+    solver = lambda f, x, domain = domain: _solveset(f, x, domain)
     inverter = lambda f, rhs, symbol: _invert(f, rhs, symbol, domain)
 
     result = EmptySet()
@@ -925,7 +924,7 @@ def _solveset(f, symbol, domain, _check=False):
             solns = solver(expr, symbol, in_set)
             result += solns
     elif isinstance(f, Eq):
-        result = solver(Add(f.lhs, - f.rhs, evaluate=False), symbol, domain)
+        result = solver(Add(f.lhs, -f.rhs, evaluate=False), symbol, domain)
 
     elif f.is_Relational:
         if not domain.is_subset(S.Reals):
@@ -1673,7 +1672,7 @@ def solveset(f, symbol=None, domain=S.Complexes):
         raise ValueError("%s is not a valid SymPy symbol" % symbol)
 
     if not domain.is_set:
-        raise ValueError("%s is not a valid domain" %(domain))
+        raise ValueError("%s is not a valid domain" % (domain))
 
     free_symbols = f.free_symbols
 
@@ -1716,7 +1715,7 @@ def solveset(f, symbol=None, domain=S.Complexes):
     # the solution is a set, duplication of results is not
     # an issue, e.g. {y, -y} when y is 0 will be {0}
     f, mask = _masked(f, Abs)
-    f = f.rewrite(Piecewise) # everything that's not an Abs
+    f = f.rewrite(Piecewise)  # everything that's not an Abs
     for d, e in mask:
         # everything *in* an Abs
         e = e.func(e.args[0].rewrite(Piecewise))
@@ -1814,7 +1813,6 @@ def solvify(f, symbol, domain):
 
     return result
 
-
 ###############################################################################
 ################################ LINSOLVE #####################################
 ###############################################################################
@@ -1869,9 +1867,9 @@ def linear_coeffs(eq, *syms, **_kw):
             d[f].append(m)
         elif f.is_Add:
             d1 = linear_coeffs(f, *syms, **{'dict': True})
-            d[0].append(m*d1.pop(0))
+            d[0].append(m * d1.pop(0))
             for xf, vf in d1.items():
-                d[xf].append(m*vf)
+                d[xf].append(m * vf)
         else:
             break
     else:
@@ -2196,7 +2194,7 @@ def linsolve(system, *symbols):
     if b is None:
         raise ValueError("Invalid arguments")
 
-    syms_needed_msg  = syms_needed_msg or 'columns of A'
+    syms_needed_msg = syms_needed_msg or 'columns of A'
 
     if sym_gen:
         symbols = [next(symbols) for i in range(A.cols)]
@@ -2237,11 +2235,10 @@ def linsolve(system, *symbols):
     solution = [simplify(sol).xreplace(swap) for sol in solution]
     return FiniteSet(tuple(solution))
 
-
-
 ##############################################################################
 # ------------------------------nonlinsolve ---------------------------------#
 ##############################################################################
+
 
 def _return_conditionset(eqs, symbols):
         # return conditionset

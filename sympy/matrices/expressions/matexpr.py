@@ -213,17 +213,6 @@ class MatrixExpr(Expr):
     def conjugate(self):
         return conjugate(self)
 
-#     def transpose(self):
-#         from sympy.matrices.expressions.transpose import transpose
-#         return transpose(self)
-
-#     T = property(transpose, None, None, 'Matrix transposition.')
-
-    def inverse(self):
-        return self._eval_inverse()
-
-    inv = inverse
-
     @property
     def I(self):
         return self.inverse()
@@ -252,7 +241,7 @@ class MatrixExpr(Expr):
 #                     return MatrixSlice(self, i, j)
                 i, j = _sympify(i), _sympify(j)
                 if self.valid_index(i, j) != False:
-                    return self._entry(i, j)
+                    return self._entry(i, j, expand=False)
                 else:
                     raise IndexError("Invalid indices (%s, %s)" % (i, j))
                 
@@ -1278,7 +1267,7 @@ class Concatenate(MatrixExpr):
 
     def __getitem__(self, key):
         from sympy.functions.elementary.piecewise import Piecewise
-        if not isinstance(key, tuple) and isinstance(key, slice):
+        if isinstance(key, slice):
             start, stop = key.start, key.stop
             if start is None:
                 start = 0
@@ -1312,31 +1301,36 @@ class Concatenate(MatrixExpr):
             if len(args) == 0:
                 return ZeroMatrix(*self.shape)
             return self.func(*args)
-        if isinstance(key, tuple) and len(key) == 2:
-            i, j = key
-            if isinstance(i, slice) or isinstance(j, slice):
-                from sympy.matrices.expressions.slice import MatrixSlice
-                return MatrixSlice(self, i, j)
-            i, j = _sympify(i), _sympify(j)
-            if self.valid_index(i, j) != False:                
-                args = []
-                length = 0
-                for arg in self.args:
-                    _length = length
-                    length += arg.rows
-                    cond = i < length
-                    if len(arg.shape) == 1:
-                        args.append([arg[j], cond])
-                    else:                        
-                        if cond.is_BooleanFalse:
-                            continue                         
-                        args.append([arg[i - _length, j], cond])
-                        
-                args[-1][-1] = True
-                return Piecewise(*args)
-            else:
-                raise IndexError("Invalid indices (%s, %s)" % (i, j))
-        elif isinstance(key, (SYMPY_INTS, Integer, Symbol, Expr)):
+        if isinstance(key, tuple):
+            if len(key) == 1:
+                key = key[0]
+                
+            elif len(key) == 2:
+                i, j = key
+                if isinstance(i, slice) or isinstance(j, slice):
+                    from sympy.matrices.expressions.slice import MatrixSlice
+                    return MatrixSlice(self, i, j)
+                i, j = _sympify(i), _sympify(j)
+                if self.valid_index(i, j) != False:                
+                    args = []
+                    length = 0
+                    for arg in self.args:
+                        _length = length
+                        length += arg.rows
+                        cond = i < length
+                        if len(arg.shape) == 1:
+                            args.append([arg[j], cond])
+                        else:                        
+                            if cond.is_BooleanFalse:
+                                continue                         
+                            args.append([arg[i - _length, j], cond])
+                            
+                    args[-1][-1] = True
+                    return Piecewise(*args)
+                else:
+                    raise IndexError("Invalid indices (%s, %s)" % (i, j))
+                
+        if isinstance(key, (SYMPY_INTS, Integer, Symbol, Expr)):
             rows = 0
             args = []
             for arg in self.args:
@@ -1661,7 +1655,7 @@ class Swap(Identity):
         return self.args[2]
 
     def _eval_determinant(self):
-        from sympy import KroneckerDelta
+        
         return 2 * KroneckerDelta(self.i, self.j) - 1
 
     def _eval_transpose(self):        
@@ -1679,7 +1673,7 @@ class Swap(Identity):
         return self.i == self.j
 
     def domain_defined(self, x): 
-        return self.n.domain_defined(x) & x.domain_conditioned((self.i < self.n) & (self.i >= 0) & (self.j < self.n) & (self.j >= 0))
+        return self.n.domain_defined(x) & x.domain_conditioned((self.i < self.n) & (self.i >= 0) & ((self.j < self.n) & (self.j >= 0)))
 
 
 class Multiplication(Identity):

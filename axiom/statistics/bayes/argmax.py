@@ -73,8 +73,6 @@ def prove(Eq):
     
     Eq << Eq.y_given_x.argmax((i,))
     
-    assert Eq[-1].lhs.is_ArgMinMaxBase
-    
     Eq << bayes.inequality.inequality.joint_slice.apply(Eq[1], Slice[:t, i]) 
     
     Eq.xt_given_x_historic = bayes.equality.equality.given_addition.joint_probability.apply(Eq[0], Eq[-1])

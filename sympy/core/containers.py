@@ -6,8 +6,6 @@
     They are supposed to work seamlessly within the SymPy framework.
 """
 
-from __future__ import print_function, division
-
 from collections import OrderedDict
 
 from sympy.core.basic import Basic
@@ -150,11 +148,23 @@ class Tuple(Basic):
         return domain
 
     def _format_ineq(self, p):
-        if len(self) == 3:
-            return r"%s \leq %s \leq %s" % tuple([p._print(s) for s in (self[1], self[0], self[2])])
-        if len(self) == 2:
-            return r"%s \in %s" % tuple([p._print(s) for s in (self[0], self[1])])
-        return p._print(self[0])
+        if p.printmethod == '_latex':
+            if len(self) == 3:
+                return r"%s \leq %s \leq %s" % tuple([p._print(s) for s in (self[1], self[0], self[2])])
+            elif len(self) == 2:
+                return r"%s \in %s" % tuple([p._print(s) for s in (self[0], self[1])])
+            else:
+                return p._print(self[0])
+        else:
+            if len(self) == 3:
+                if self[1].is_zero:
+                    return r"%s:%s" % tuple([p._print(s) for s in (self[0], self[2] + 1)])
+                else:
+                    return r"%s:%s:%s" % tuple([p._print(s) for s in (self[0], self[1], self[2])])
+            elif len(self) == 2:
+                return r"%s:%s" % tuple([p._print(s) for s in (self[0], self[1])])
+            else:
+                return p._print(self[0])            
 
     def domain_latex(self, domain=None):
         from sympy.core.numbers import oo

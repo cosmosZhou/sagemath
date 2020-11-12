@@ -1,9 +1,10 @@
 # SymPy
 
 to avoid php websites to show .py files, add the following codes to 
-D:\wamp64\bin\apache\apache2.4.39\conf\httpd.conf for windows.
+D:\wamp64\bin\apache\apache2.4.39\conf\httpd.conf
+for windows.
 
-<Files ~ ".py|.pyc">
+<Files ~ "\.py|\.gitignore">
 Order allow,deny
 Deny from all
 </Files>
@@ -12,3 +13,4 @@ Deny from all
 Order allow,deny
 Deny from all
 </Directory>
+

@@ -78,13 +78,13 @@ def prove(Eq):
     
     Eq << Eq.bisect1.this().function.rhs.args[1].function.bisect(Slice[-1:])
     
-    Eq << Eq[-1].this.function.rhs.args[1].function.as_Ref()
+    Eq << Eq[-1].this.function.rhs.args[1].function.astype(LAMBDA)
     
     Eq << Eq[-1].this.function.rhs.args[1].function.function.as_two_terms()
     
     Eq.z_recursion = Eq[-1].subs(Eq.z_definition_1.reversed)
     
-    Eq << Eq.bisect0.this.rhs.args[1].function.as_Ref()
+    Eq << Eq.bisect0.this.rhs.args[1].function.astype(LAMBDA)
     Eq << Eq[-1].this.rhs.args[1].function.function.as_two_terms()
     Eq << Eq[-1].subs(Eq.z_definition_0.reversed)
     

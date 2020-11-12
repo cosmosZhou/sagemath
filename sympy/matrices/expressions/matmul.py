@@ -1,5 +1,3 @@
-from __future__ import print_function, division
-
 from sympy import Number
 from sympy.core import Mul, Basic, sympify
 from sympy.core.compatibility import range
@@ -43,8 +41,7 @@ class MatMul(MatrixExpr):
             return args[0]
 
         # This must be removed aggressively in the constructor to avoid
-        # TypeErrors from GenericIdentity().shape
-        args = filter(lambda X: not X.is_Identity, args)
+        # TypeErrors from GenericIdentity().shape        
         args = list(map(sympify, args))
         
         if any(arg.is_MatMul for arg in args):
@@ -57,20 +54,70 @@ class MatMul(MatrixExpr):
                         yield arg
                         
             args = [*generator()]
-        
-        if len(args) == 1:
-            return args.pop()
-        
-        obj = Basic.__new__(cls, *args)
-        factor, matrices = obj.as_coeff_matrices()
-        if check:
-            validate(*matrices)
+            
+        coeffs = []        
+        matrices = []
+
+        def append(mat):            
+            if matrices:
+                last = matrices[-1]
+                if last.is_MatPow:
+                    if mat.is_MatPow:
+                        if last.base == mat.base:
+                            matrices[-1] = last.func(last.base, last.exp + mat.exp)
+                            return
+                    elif last.base == mat:                    
+                        matrices[-1] = last.func(last.base, last.exp + 1)
+                        return
+                elif last == mat:
+                    if mat._eval_inverse() == last:
+                        matrices.pop()
+                    else:
+                        matrices[-1] = MatPow(last, 2)
+                    return
+            
+            matrices.append(mat)
+                
+        for arg in args:
+            if not arg.is_Mul:
+                append(arg)
+                continue
+            
+            coeff = []
+            matrix = []
+            for t in arg.args:
+                if t.shape:
+                    matrix.append(t)                        
+                else:
+                    coeff.append(t)
+            if coeff:
+                coeffs.append(Mul(*coeff))
+                append(Mul(*matrix))
+            else:
+                append(arg)
+                
         if not matrices:
-            # Should it be
-            #
-            # return Basic.__neq__(cls, factor, GenericIdentity()) ?
-            return factor
-        return obj
+            return Identity(args[0].shape[-1])
+        matrices = [*filter(lambda X: not X.is_Identity, matrices)]
+                        
+        if len(matrices) == 1:
+            mat = matrices.pop()
+        else:
+            
+            mat = Basic.__new__(cls, *matrices)
+            factor, matrices = mat.as_coeff_matrices()
+            if check:
+                validate(*matrices)
+            if not matrices:
+                # Should it be
+                #
+                # return Basic.__neq__(cls, factor, GenericIdentity()) ?
+                mat = factor            
+        
+        if coeffs: 
+            mat = Mul(*coeffs) * mat
+                        
+        return mat
 
     def argmax_shape(self):
         import numpy as np
@@ -80,12 +127,16 @@ class MatMul(MatrixExpr):
     def shape(self):
         dimension = self.args[self.argmax_shape()].shape        
         dimension = dimension[:-2]
-        for m in self.args:
-            if len(m.shape) >= 2:
-                dimension += (m.shape[-2],) 
-                break
-            if len(m.shape) == 1:
-                break
+        
+        m = self.args[0]
+        if len(m.shape) == 1:
+            if len(self.args[1].shape) == 1:
+                assert m.shape[0] == self.args[1].shape[0]
+            else:
+                assert m.shape[0] == self.args[1].shape[-2], "self.args[0].shape = %s, self.args[1].shape = %s" % (self.args[0].shape, self.args[1].shape)
+        else:
+            assert len(m.shape) >= 2
+            dimension += (m.shape[-2],)
         
         last_shape = self.args[-1].shape
         if len(last_shape) > 1:
@@ -111,45 +162,47 @@ class MatMul(MatrixExpr):
                 stop = self.shape[0]
                 
             return
-                
-        from sympy import Dummy, Sum, ImmutableMatrix, Integer
-
-        coeff, matrices = self.as_coeff_matrices()
-
-        if len(matrices) == 1:  # situation like 2*X, matmul is just X
-            return coeff * matrices[0][i, j]
-
-        indices = [None] * (len(matrices) + 1)
-        ind_ranges = [None] * (len(matrices) - 1)
-        indices[0] = i
-        indices[-1] = j
-
-        def f():
-            counter = 1
-            while True:
-                yield Dummy("i_%i" % counter)
-                counter += 1
-
-        dummy_generator = kwargs.get("dummy_generator", f())
-
-        for i in range(1, len(matrices)):
-            indices[i] = next(dummy_generator)
-
-        for i, arg in enumerate(matrices[:-1]):
-            ind_ranges[i] = arg.shape[1] - 1
-        matrices = [arg._entry(indices[i], indices[i + 1], dummy_generator=dummy_generator) for i, arg in enumerate(matrices)]
-        expr_in_sum = Mul.fromiter(matrices)
-        if any(v.has(ImmutableMatrix) for v in matrices):
-            expand = True
-        result = coeff * Sum(
-                expr_in_sum,
-                *zip(indices[1:-1], [0] * len(ind_ranges), ind_ranges)
-            )
-
-        # Don't waste time in result.doit() if the sum bounds are symbolic
-        if not any(isinstance(v, (Integer, int)) for v in ind_ranges):
-            expand = False
-        return result.doit() if expand else result
+        if expand:    
+            from sympy import Dummy, Sum, ImmutableMatrix, Integer
+    
+            coeff, matrices = self.as_coeff_matrices()
+    
+            if len(matrices) == 1:  # situation like 2*X, matmul is just X
+                return coeff * matrices[0][i, j]
+    
+            indices = [None] * (len(matrices) + 1)
+            ind_ranges = [None] * (len(matrices) - 1)
+            indices[0] = i
+            indices[-1] = j
+    
+            def f():
+                counter = 1
+                while True:
+                    yield Dummy("i_%i" % counter)
+                    counter += 1
+    
+            dummy_generator = kwargs.get("dummy_generator", f())
+    
+            for i in range(1, len(matrices)):
+                indices[i] = next(dummy_generator)
+    
+            for i, arg in enumerate(matrices[:-1]):
+                ind_ranges[i] = arg.shape[1] - 1
+            matrices = [arg._entry(indices[i], indices[i + 1], dummy_generator=dummy_generator) for i, arg in enumerate(matrices)]
+            expr_in_sum = Mul.fromiter(matrices)
+            if any(v.has(ImmutableMatrix) for v in matrices):
+                expand = True
+            result = coeff * Sum(
+                    expr_in_sum,
+                    *zip(indices[1:-1], [0] * len(ind_ranges), ind_ranges)
+                )
+    
+            # Don't waste time in result.doit() if the sum bounds are symbolic
+            if not any(isinstance(v, (Integer, int)) for v in ind_ranges):
+                expand = False
+            return result.doit() if expand else result
+        else:
+            return self._entry(i)[:, j]
 
     def as_coeff_matrices(self):
 #         scalars = [x for x in self.args if not x.is_Matrix]
@@ -187,10 +240,7 @@ class MatMul(MatrixExpr):
 
     def _eval_inverse(self):
         try:
-            from sympy.concrete.expr_with_limits import LAMBDA
-            return MatMul(*[
-                arg.inverse() if isinstance(arg, (MatrixExpr, LAMBDA)) else arg ** -1
-                    for arg in self.args[::-1]]).doit()
+            return MatMul(*[arg.inverse() for arg in self.args[::-1]]).doit()
         except ShapeError:
             from sympy.matrices.expressions.inverse import Inverse
             return Inverse(self)
@@ -272,6 +322,8 @@ class MatMul(MatrixExpr):
         return self
                 
     def expand(self, free_symbol=None, deep=True, **_):
+        if not deep:
+            return MatrixExpr.expand(self) 
         from sympy.concrete.expr_with_limits import LAMBDA
         from sympy.concrete.summations import Sum
         if len(self.args) > 2:
@@ -389,6 +441,7 @@ class MatMul(MatrixExpr):
                 assert i != k                            
                 return LAMBDA(Sum(A[i, k] * B[k], k_limit).simplify(), i_limit).simplify()
         else:
+#             print('A.shape =', A.shape)
             if len(B.shape) > 1:
                 if B.shape[-1].is_Integer:
                     k_limit = generate_k_limit(A, B, **kwargs)
@@ -398,8 +451,9 @@ class MatMul(MatrixExpr):
                     for j in range(B.shape[-1]):
                         args.append(Sum(A[k] * B[k, j], k_limit).simplify())
                     return Concatenate(*args)
-                else:                    
-                    j_limit = B.generate_int_limit(0, **kwargs)                
+                else:   
+#                     print('B.shape =', B.shape)                 
+                    j_limit = B.generate_int_limit(0, **kwargs)
                     j, *_ = j_limit
                     
                     k_limit = generate_k_limit(A, B, {j}, **kwargs)
@@ -499,6 +553,12 @@ class MatMul(MatrixExpr):
             domain &= arg.domain_defined(x)
         return domain
     
+    def domain_definition(self):
+        eq = MatrixExpr.domain_definition(self)
+        for arg in self.args:
+            eq &= arg.domain_definition()        
+        return eq
+
     def _eval_transpose(self):
         """Transposition of matrix multiplication.
 
@@ -521,13 +581,33 @@ class MatMul(MatrixExpr):
 
         return self.func(*(arg.T for arg in self.args[::-1]))
 
-    def _subs(self, old, new):
+    def _subs(self, old, new, **hints):
         if old.is_MatMul:
             args = old.args
             for i in range(len(self.args) - len(args) + 1): 
                 if all(self.args[j] == args[j - i]for j in range(i, i + len(args))):
                     return self.func(*self.args[:i] + (new.args if new.is_MatMul else (new,)) + self.args[i + len(args):]).simplify()
-        return MatrixExpr._subs(self, old, new)
+        return MatrixExpr._subs(self, old, new, **hints)
+
+    def distribute(self):
+        for i, arg in enumerate(self.args):
+            if arg.is_Sum or arg.is_Integral:
+                args = [*self.args]
+                args[i] = arg.function 
+                function = self.func(*args).powsimp()
+                return arg.func(function, *arg.limits)
+            if arg.is_Plus:
+                args = [*self.args]
+                if i > 0:
+                    left = arg.func(*(self.func(*args[:i]) @ a for a in arg.args))
+                    right = args[i + 1:]
+                    if right:
+                        return left @ self.func(*right)
+                    else:
+                        return left
+                else:
+                    return self
+        return self
 
     
 def validate(*matrices):
@@ -605,22 +685,21 @@ def merge_explicit(matmul):
 
 def xxinv(mul):
     """ Y * X * X.I -> Y """
-    from sympy.matrices.expressions.inverse import Inverse
     factor, matrices = mul.as_coeff_matrices()
     for i, (X, Y) in enumerate(zip(matrices[:-1], matrices[1:])):
         try:
             if X.is_square and Y.is_square:
                 _X, x_exp = X, 1
                 _Y, y_exp = Y, 1
-                if isinstance(X, MatPow) and not isinstance(X, Inverse):
+                if X.is_MatPow and not X.is_Inverse:
                     _X, x_exp = X.args
-                if isinstance(Y, MatPow) and not isinstance(Y, Inverse):
+                if Y.is_MatPow and not Y.is_Inverse:
                     _Y, y_exp = Y.args
                 if _X == _Y.inverse():
                     if x_exp - y_exp > 0:
-                        I = _X ** (x_exp - y_exp)
+                        I = _X ^ (x_exp - y_exp)
                     else:
-                        I = _Y ** (y_exp - x_exp)
+                        I = _Y ^ (y_exp - x_exp)
                     return newmul(factor, *(matrices[:i] + [I] + matrices[i + 2:]))
         except (ValueError, AttributeError):  # Y might not be invertible
             pass

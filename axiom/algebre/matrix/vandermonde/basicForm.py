@@ -49,7 +49,7 @@ def prove(Eq):
     
     Eq << Eq[-1].this.rhs.bisect(Slice[:1])
     
-    Eq << Eq[-1].this.rhs.args[0].args[0].arg.simplify(deep=True)
+    Eq << Eq[-1].this.rhs.args[0].args[0].arg().function.simplify()
     
     Eq << Eq[-1].this.rhs.args[0].args[1].doit()
     
@@ -83,7 +83,6 @@ def prove(Eq):
     
     Eq << Eq[0].this.lhs.arg.limits_subs(j, k).this.lhs.arg.limits_subs(i, j).subs(a[:n], a[1:n + 1])
 
-#     Eq << Eq[-1].this.rhs.limits_subs(i + 1, i).this.rhs.limits_subs(j + 1, j)
     Eq << Eq[-1].this.rhs.limits_subs(i, i - 1)
     
     Eq << Eq[-1].this.rhs.limits_subs(j, j - 1)

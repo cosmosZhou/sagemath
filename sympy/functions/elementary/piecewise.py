@@ -1,5 +1,3 @@
-from __future__ import print_function, division
-
 from sympy.core import Basic, S, Function, diff, Tuple, Dummy
 from sympy.core.basic import as_Basic
 from sympy.core.compatibility import range
@@ -50,8 +48,8 @@ class ExprCondPair(Tuple):
         """
         return self.args[1]
 
-#     def _eval_is_commutative(self):
-#         return self.expr.is_commutative
+
+
 
     def __iter__(self):
         yield self.expr
@@ -917,7 +915,7 @@ class Piecewise(Function):
     def _eval_power(self, s):
         return self.func(*[(e ** s, c) for e, c in self.args])
 
-    def _subs(self, old, new, **_):
+    def _subs(self, old, new, **hints):
         if self == old:
             return new
         # this is strictly not necessary, but we can keep track
@@ -1133,6 +1131,7 @@ class Piecewise(Function):
 
         _e0 = e0._subs(lhs, rhs)
         __e0 = e0._subs(rhs, lhs)
+
         if {e1, e1._subs(lhs, rhs), e1._subs(rhs, lhs)} & {e0, _e0, __e0}:
             return e1
         
@@ -1316,13 +1315,14 @@ class Piecewise(Function):
             
         expr, _ = self.args[-1]
         e, c = self.args[-2]
+
         if e == expr or c.is_Equality and (e == expr._subs(*c.args) or e._subs(*c.args) == expr):
             args = [*self.args]
             del args[-2]
             if len(args) == 1:
                 return expr
             return self.func(*args).simplify()
-                         
+            
         if len(self.args) == 2:
             e0, c0 = self.args[0]
             e1, c1 = self.args[1]
@@ -1350,6 +1350,7 @@ class Piecewise(Function):
                             args.append((e0._subs(x, y).simplify(), Equality(x, y)))
                             e1 = e1._subs(delta, S.Zero)
                     return self.func(*args, (e1, True)).simplify()
+
                 domain = self.domain_defined(x)
                 if A.is_Complement:
                     U, C = A.args
@@ -1363,7 +1364,7 @@ class Piecewise(Function):
                 if e1.is_EmptySet:
                     if e0 == x.set:
                         return A & e0
-            if c0.is_NotContains:                
+            elif c0.is_NotContains:                
                 return self.func((e1, c0.invert()), (e0, True)).simplify(deep=deep)
                 
         if expr.is_Piecewise:

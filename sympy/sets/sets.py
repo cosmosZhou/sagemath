@@ -25,10 +25,12 @@ from sympy.utilities.misc import func_name, filldedent
 
 from mpmath import mpi, mpf
 
+
 def is_set(s):
     if isinstance(s, set):
         return True
     return s.is_set
+
 
 class Set(Basic):
     """
@@ -85,7 +87,7 @@ class Set(Basic):
         return Union(self & indices, self - indices, evaluate=False)
 
     def image_set(self):
-        return None
+        ...
 
     def element_symbol(self, excludes=None):
         element_type = self.element_type
@@ -842,6 +844,7 @@ class ProductSet(Set):
 
 
 class CartesianSpace(Set):
+
     @property
     def domain(self):
         return S.UniversalSet
@@ -868,7 +871,7 @@ class CartesianSpace(Set):
 
     def _contains(self, other):
         if tuple(self.element_type.shape) != tuple(other.shape):
-            assert tuple(self.element_type.shape) == tuple(other.shape)
+            assert tuple(self.element_type.shape) == tuple(other.shape), "self.element_type.shape = %s, other.shape = %s" % (self.element_type.shape, other.shape)
         assert tuple(self.element_type.shape) == tuple(other.shape)        
 
     def __mul__(self, other):
@@ -888,6 +891,11 @@ class CartesianSpace(Set):
         if b.is_CartesianSpace:
             assert self.space_shape == b.space_shape            
             return self.func(self.space & b.space, *self.space_shape)
+        elif b.is_symbol:
+            element_type = b.element_type()
+            if element_type.as_Set() in self:
+                return b 
+
     
 class Interval(Set, EvalfMixin):
     """
@@ -931,6 +939,7 @@ class Interval(Set, EvalfMixin):
 
     .. [1] https://en.wikipedia.org/wiki/Interval_%28mathematics%29
     """
+
     def structure_eq(self, other):
         if not isinstance(other, self.func) or len(self.args) != len(other.args):
             return False
@@ -947,7 +956,7 @@ class Interval(Set, EvalfMixin):
             args = [*self.args]
             for i, arg in enumerate(self.args[:3]):
                 try:
-                    _arg = arg.simplify(deep=True)
+                    _arg = arg.simplify(deep=deep)
                 except Exception as e:
                     print(type(arg))
                     print(arg)
@@ -1171,11 +1180,10 @@ class Interval(Set, EvalfMixin):
                 start = S.NegativeInfinity
                 stop = S.Infinity
                 
-        if step is None:
-            if integer:
-                step = 1
-            else:
-                step = S.Infinitesimal
+        if integer:
+            step = 1
+        else:
+            step = S.Infinitesimal
         
         start = _sympify(start)
         stop = _sympify(stop)
@@ -1775,6 +1783,7 @@ class Union(Set, LatticeOp, EvalfMixin):
 
     .. [1] https://en.wikipedia.org/wiki/Union_%28set_theory%29
     """
+
     @property
     def identity(self):
         return S.EmptySet
@@ -1952,7 +1961,12 @@ class Union(Set, LatticeOp, EvalfMixin):
                 dtype = _dtype
                 continue
             if dtype != _dtype:
-                return None
+                if _dtype in dtype:
+                    continue
+                if dtype in _dtype:
+                    dtype = _dtype
+                    continue
+                raise Exception('inconsistent dtype: %s and %s' % (dtype, _dtype))
 
         return dtype
 
@@ -2049,7 +2063,12 @@ class Intersection(Set, LatticeOp):
                 dtype = _dtype
                 continue
             if dtype != _dtype:
-                return None
+                if _dtype in dtype:
+                    continue
+                if dtype in _dtype:
+                    dtype = _dtype
+                    continue
+                raise Exception('inconsistent dtype: %s and %s' % (dtype, _dtype))
 
         return dtype
 
@@ -2749,9 +2768,6 @@ class FiniteSet(Set, EvalfMixin):
     def _eval_is_finite(self):
         return True
 
-#     def _subs(self, old, new, **hints):
-#         return Set._subs(self, old, new, **hints)
-
     def intersection_sets(self, b):
         if b.is_FiniteSet:
             return FiniteSet(*(self._elements & b._elements))
@@ -2970,10 +2986,18 @@ class FiniteSet(Set, EvalfMixin):
         return self.is_proper_subset(other)
 
     def __abs__(self):
-        return len(self)
+        return self._eval_Abs()
 
     def _eval_Abs(self):
-        return len(self)
+        length = len(self)
+        if length == 1:
+            return S.One
+        from sympy.functions.elementary.piecewise import Piecewise
+        * before, last = self.args
+        from sympy import Abs       
+        before = self.func(*before)
+        length = Abs(before)
+        return Piecewise((length, Contains(last, before).simplify()), (length + 1, True)).simplify()
 
     @property
     def is_integer(self):
@@ -3024,8 +3048,6 @@ class FiniteSet(Set, EvalfMixin):
     def handle_finite_sets(self, unk):
         if len(unk) == len(self) == 1:
             return Intersection(unk, self, evaluate=False)
-#             from sympy import Piecewise
-#             return Piecewise((unk, Equality(unk.arg, self.arg)), (S.EmptySet, True)).simplify()
 
     def as_KroneckerDelta(self, x):
         from sympy.functions.special.tensor_functions import KroneckerDelta
@@ -3040,62 +3062,18 @@ class FiniteSet(Set, EvalfMixin):
             domain &= arg.domain_defined(x)        
         return domain            
 
-class FiniteList(Expr):
-    """
-    Represents a finite list of discrete numbers
+    def sum(self):
+        # return the sum of elements in the finiteset
+        length = len(self)
+        if length == 1:
+            return self.arg
+        from sympy.functions.elementary.piecewise import Piecewise
+        * before, last = self.args
+        before = self.func(*before)
+        sum_of_before = before.sum()
+        return Piecewise((sum_of_before, Contains(last, before).simplify()), (sum_of_before + last, True)).simplify()
 
-    Examples
-    ========
-
-    >>> from sympy import FiniteSet
-    >>> FiniteList(1, 2, 3, 4)
-    [1, 2, 3, 4]
-    >>> members = [1, 2, 3, 4]
-    >>> f = FiniteList(*members)
-    >>> f
-    [1, 2, 3, 4]
-    """
-    is_FiniteList = True
-    is_iterable = True
-
-    def __new__(cls, *args):
-        args = list(map(sympify, args))
-        obj = Basic.__new__(cls, *args)
-        return obj
-
-    def __iter__(self):
-        return iter(self.args)
-
-    def __len__(self):
-        return len(self.args)
-
-    @property
-    def is_integer(self):
-        for elem in self:
-            is_integer = elem.is_integer
-            if is_integer:
-                continue
-            return is_integer
-        return True
-
-    @property
-    def atomic_dtype(self):
-        dtype = None
-        for e in self.args:
-            _dtype = e.dtype
-            if dtype is None:
-                dtype = _dtype
-                continue
-            if dtype != _dtype:
-                if dtype in _dtype:
-                    dtype = _dtype
-                elif _dtype in dtype:
-                    ...
-                else:
-                    raise Exception('inconsistent dtype detected: %s != %s' % (dtype, _dtype))
-        return dtype.set
-
-
+        
 converter[set] = lambda x: FiniteSet(*x)
 converter[frozenset] = lambda x: FiniteSet(*x)
 
@@ -3140,7 +3118,7 @@ class SymmetricDifference(Set):
 
 
 # image_set is to be substituted for imageset
-def image_set(sym, expr, condition):
+def image_set(expr, sym, condition):
     from sympy.concrete.expr_with_limits import UNION
     if condition.is_Interval and condition.is_integer:
         limit = (sym, condition.min(), condition.max())
@@ -3481,45 +3459,3 @@ def set_pow(x, y):
 def set_function(f, x):
     from sympy.sets.handlers.functions import _set_function
     return _set_function(f, x)
-
-
-class List(Function):
-    """
-    Return the List Comprehension of a set.
-    """
-
-    is_List = True
-
-    @property
-    def atomic_dtype(self):
-        return self.arg.atomic_dtype
-
-    def _latex(self, p):
-        return "[*%s]" % p._print(self.arg)
-
-    @classmethod
-    def eval(cls, arg):
-        assert arg.is_set
-        if arg.is_FiniteSet:
-            return FiniteList(*arg.args)
-
-    def __getitem__(self, indices, **kw_args):
-        from sympy.tensor.indexed import Indexed, Slice
-        if isinstance(indices, (list, tuple)):
-            return Indexed(self, *indices, **kw_args)
-        elif isinstance(indices, slice):
-            start, stop = indices.start, indices.stop
-            if start is None:
-                start = 0
-            if start == stop - 1:
-                return Indexed(self, start, **kw_args)
-            if start == 0 and stop == self.shape[-1]:
-                return self
-            return Slice(self, indices, **kw_args)
-        else:
-            return Indexed(self, indices, **kw_args)
-
-    @property
-    def shape(self):
-        return (abs(self.arg),) + self.arg.shape
-

@@ -64,7 +64,8 @@ class Basic(with_metaclass(ManagedProperties)):
     is_symbol = False
    
     is_Add = False
-    is_Mul = False   
+    is_Mul = False
+    is_Pow = False   
     
     is_Equality = False
     is_Unequality = False
@@ -133,6 +134,9 @@ class Basic(with_metaclass(ManagedProperties)):
     def __ror__ (self, other):
         if self.is_boolean and other.is_boolean:
             return other.__or__(self)
+        
+        if self.is_set:
+            return self.__or__(other)
         
         from sympy.stats.rv import given
         return given(other, self)
@@ -1156,13 +1160,24 @@ class Basic(with_metaclass(ManagedProperties)):
 #             print("inconsistent dtype: old.dtype = %s, new.dtype = %s" % (old.dtype, new.dtype))
             
         if old.is_Slice:
-            indices = set(index for indexed in preorder_traversal(self) if isinstance(indexed, Basic) and indexed.is_Indexed and indexed.base == old.base for index in indexed.indices)
+            indices = set()
+            for indexed in preorder_traversal(self):
+                if not isinstance(indexed, Basic):
+                    continue
+                if indexed.is_Indexed:
+                    if indexed.base == old.base:
+                        indices |= {*indexed.indices}
+                elif indexed.is_Slice:
+                    if indexed.base == old.base:
+                        indices |= {*indexed.indices}
+                    
             if indices:
+                start, stop = old.indices
                 reps = {}            
                 this = self
                 for i in indices:
                     if i.is_symbol:
-                        if i >= old.indices[1] or i < old.indices[0]: 
+                        if i >= stop or i < start: 
                             continue
                         i_domain = self.domain_defined(i)
                         if i.domain != i_domain:
@@ -1385,14 +1400,6 @@ class Basic(with_metaclass(ManagedProperties)):
                 return True
 
         return any(arg._has(pattern) for arg in self.args)
-# for wild card matching
-#         _has_matcher = getattr(pattern, '_has_matcher', None)
-#         if _has_matcher is not None:
-#             match = _has_matcher()
-#             return any(match(arg) for arg in preorder_traversal(self))
-#         else:
-#             return any(arg._has(pattern) for arg in self.args)
-#             return any(arg == pattern for arg in preorder_traversal(self))
 
     def _has_matcher(self):
         """Helper for .has()"""
@@ -1996,7 +2003,7 @@ class Basic(with_metaclass(ManagedProperties)):
             if len(kwargs['shape']) > 1:
                 symbols = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
             else:
-                symbols = 'abcdefghijklmnopqrstuvwxyz'
+                symbols = 'abcdefgopqrstuvwxyzhijklmn'
         else:
             if 'dtype' in kwargs:
                 symbols = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'            
@@ -2166,7 +2173,14 @@ class Basic(with_metaclass(ManagedProperties)):
 
     def domain_definition(self):
         return S.true
-        
+      
+    def simplify_forall(self, forall):
+        ...        
+      
+    def list_comprehension(self):
+        from sympy.sets.sets import ListComprehension
+        return ListComprehension(self)
+
 class Atom(Basic):
     """
     A parent class for atomic things. An atom is an expression with no subexpressions.

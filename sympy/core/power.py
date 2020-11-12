@@ -236,6 +236,8 @@ class Power(Expr):
 
     __slots__ = ['is_commutative']
 
+    is_Pow = True
+    
     @property
     def shape(self):
         return self.args[0].shape
@@ -1574,7 +1576,7 @@ class Power(Expr):
             r = Add(*l)
         return expand_mul(r * b0 ** e) + order
 
-    def _eval_as_leading_term(self, x):
+    def _eval_as_leading_term(self, x, cdir=0):
         from sympy import exp, log
         if not self.exp.has(x):
             return self.func(self.base.as_leading_term(x), self.exp)
